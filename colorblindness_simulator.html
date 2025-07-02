@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<title>Colorblind Simulator</title>
+	</head>
+	<style>
+		*{
+			margin: 0;
+			padding: 0;
+			color: white;
+		}
+		
+		body, main, #button-span {
+			display: flex;
+			justify-content: center;
+			align-items: center;
+		}
+	
+		body, main {
+			overflow: hidden;
+			flex-direction: column;
+			background-color: #333138;
+		}
+		
+		body{
+			min-width: 100vw;
+			min-height: 100vh;
+		}
+		
+		video{
+			min-width: 50vw;
+		}
+		
+		canvas {
+			border: 1px solid white;
+		}
+		
+		button {
+			padding: 8px;
+			background-color: #333138;
+			border: 1px solid white;
+
+		}
+		
+		button:hover {
+			background-color: white;
+			color: #333138;
+		}
+		
+		.hidden {
+			display: none;
+		}
+		
+		#button-span {
+			margin-bottom: 8px;
+			gap: 4px;
+		}
+		
+	</style>
+	<body>
+		<h1 id="instruction-header">Allow Access to Camera to Begin</h1>
+		<main>
+			<span id="button-span"><button id="normalBtn">Normal Vision</button><button id="protanopiaBtn">Protanopia</button><button id="deuteranopiaBtn">Deuteranopia</button><button id="tritanopiaBtn">Tritanopia</button></span>
+			<video id="video" class="hidden" style="pointer-events:none;" controls disablepictureinpicture autoplay playsinline muted>If this shows it is unavailable on your browser.</video>
+			<canvas></canvas>
+		</main>
+		<h1 id="error-header" class="hidden"></h1>
+	</body>
+	<script>
+	/*
+		TODO:
+		1. Query device type to be able to swap from front to back camera if they have one.
+	*/
+	
+		//Colorblind Matricies
+		
+		//Not really in use. Placeholder for normal vision NOT FOR COMPUTATION.
+		const normalMatrix = [
+			[1,1,1],
+			[1,1,1],
+			[1,1,1]
+		];
+		
+		const protanopiaMatrix = [
+		  [0.152286, 1.052583, -0.204868],
+		  [0.114503, 0.786281,  0.099216],
+		  [-0.003882, -0.048116, 1.051998]
+		];
+		
+		const deuteranopiaMatrix = [
+		  [0.367322, 0.860646, -0.227968],
+		  [0.280085, 0.672501,  0.047413],
+		  [-0.011820, 0.042940, 0.968881]
+		];
+		
+		const tritanopiaMatrix = [
+		  [1.255528, -0.076749, -0.178779],
+		  [-0.078411, 0.930809, 0.147602],
+		  [0.004733, 0.691367, 0.303900]
+		];
+
+		const introHeader = document.getElementById("instruction-header");
+		const errorHeader = document.getElementById("error-header");
+		const video = document.querySelector('video');
+		const img = document.querySelector("canvas");
+		const protanopiaBtn = document.getElementById("protanopiaBtn");
+		const deuteranopiaBtn = document.getElementById("deuteranopiaBtn");
+		const tritanopiaBtn = document.getElementById("tritanopiaBtn");
+		const normalBtn = document.getElementById("normalBtn");
+		const buttonSpan = document.getElementById("button-span");
+		
+		let colorblindType = normalMatrix;
+		
+		protanopiaBtn.addEventListener("click", () => {
+			colorblindType = protanopiaMatrix;
+		});
+		
+		deuteranopiaBtn.addEventListener("click", () => {
+			colorblindType = deuteranopiaMatrix;
+		});
+		
+		tritanopiaBtn.addEventListener("click", () => {
+			colorblindType = tritanopiaMatrix;
+		});
+		
+		normalBtn.addEventListener("click", () => {
+			colorblindType = normalMatrix;
+		});
+		
+		if(window.isSecureContext){
+			getMedia({video: true});
+		}
+		else{
+			showError("Attempting to access site from unsecure connection. Please use https:// to access this url.");
+		}
+		
+		async function getMedia(constraints) {
+		  let stream = null;
+
+		  try {
+			stream = await navigator.mediaDevices.getUserMedia(constraints);
+			video.srcObject = stream;
+			
+			// On successful stream
+			introHeader.innerText = "Colorblind Simulation";
+			
+			let image = new ImageCapture(stream.getTracks()[0]);
+			const {width, height} = stream.getTracks()[0].getSettings();
+			
+			console.log(`${width}*${height}`);
+			img.width = width;
+			img.height = height;
+			let ctx = img.getContext('2d', {willReadFrequently: true});
+			
+			while(true){
+				let frame = await image.grabFrame();
+				ctx.drawImage(frame, 0, 0, width, height);
+				let temp = ctx.getImageData(0,0, 1000, 1000);
+				for (let i = 0; i < temp.data.length; i += 4) {
+					let value = applyColorblindFilter([temp.data[i],temp.data[i+1], temp.data[i+2]], colorblindType);
+				
+					temp.data[i] = value[0]; // red
+					temp.data[i + 1] = value[1]; // green
+					temp.data[i + 2] = value[2]; // blue
+
+				}
+				ctx.putImageData(temp, 0, 0);
+				
+			}
+		  } catch (err) {
+			showError("Error accessing media devices. Please refresh and allow access to continue.");
+		  }
+		}
+		
+		function applyColorblindFilter(data, matrix){
+			if(matrix !== normalMatrix){
+				data[0] = data[0] * matrix[0][0] + data[1] * matrix[0][1] + data[2] * matrix[0][2];
+				data[1] = data[0] * matrix[1][0] + data[1] * matrix[1][1] + data[2] * matrix[1][2];
+				data[2] = data[0] * matrix[2][0] + data[1] * matrix[2][1] + data[2] * matrix[2][2];
+			}
+			return data;
+		}
+		
+		function showError(errorText){
+			errorHeader.innerText = errorText;
+			errorHeader.classList.remove("hidden");
+			introHeader.classList.add("hidden");
+			img.classList.add("hidden");
+			video.classList.add("hidden");
+			
+			let collection = buttonSpan.children;
+			for(let i = 0; i < collection.length; i++){
+				collection[i].classList.add("hidden");
+			}
+		}
+
+	</script>
+</html>
